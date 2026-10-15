@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "birdeye": {
+      "command": "pwsh",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-File",
+        "C:\\Local MCP\\generated\\start-stdio.ps1"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Candidates only. Compare with selected source loaders. Client wrapper paths refer to this output directory; adjust if moved. Use Windows PowerShell executable instead of pwsh if that is the installed host. No config was applied.

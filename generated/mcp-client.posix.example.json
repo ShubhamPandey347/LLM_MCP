@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "birdeye": {
+      "command": "sh",
+      "args": [
+        "C:\\Local MCP\\generated\\start-stdio.sh"
+      ]
+    }
+  }
+}

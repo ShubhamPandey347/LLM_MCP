@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "eye_skills",
+  "root": {
+    "id": "skills",
+    "path": "C:/Local MCP/Skills/curated",
+    "class": "knowledge",
+    "enabled": true,
+    "index": true,
+    "hash": "sha256",
+    "git": false,
+    "exclusions": [
+      ".git",
+      "node_modules",
+      "dist",
+      "build",
+      "coverage",
+      ".venv",
+      "__pycache__",
+      ".pytest_cache",
+      ".env",
+      "state",
+      "eye_Databa"
+    ]
+  }
+}

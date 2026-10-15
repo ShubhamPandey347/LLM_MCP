@@ -1,0 +1,48 @@
+{
+  "roots": [
+    {
+      "id": "llm-mcp",
+      "path": "C:/Local MCP/workspace",
+      "class": "workspace",
+      "enabled": true,
+      "index": true,
+      "hash": "sha256",
+      "git": true,
+      "exclusions": [
+        ".git",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".env",
+        "state",
+        "eye_Databa"
+      ]
+    },
+    {
+      "id": "gpt-knowledge",
+      "path": "C:/Local MCP/Knowledge",
+      "class": "knowledge",
+      "enabled": true,
+      "index": true,
+      "hash": "sha256",
+      "git": false,
+      "exclusions": [
+        ".git",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".env",
+        "state",
+        "eye_Databa"
+      ]
+    }
+  ]
+}

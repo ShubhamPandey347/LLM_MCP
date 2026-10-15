@@ -1,0 +1,10 @@
+{
+  "gateway": "C:/AgentEnvironment/BirdEye",
+  "workspace": "D:/Projects/MyRepository",
+  "workspace_id": "my-project",
+  "knowledge": "C:/AgentEnvironment/Knowledge",
+  "skills": "C:/AgentEnvironment/Skills/curated",
+  "memory": "C:/AgentEnvironment/Memory",
+  "python": "C:/AgentEnvironment/BirdEye/.venv/Scripts/python.exe",
+  "transport": "stdio"
+}

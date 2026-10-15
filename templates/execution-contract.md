@@ -1,0 +1,11 @@
+# Execution integration contract — design template, not installed enforcement
+- Agent requests an action with target, argv, stable operation ID and user-authorized intent.
+- Runtime derives identity from trusted OS evidence; Windows SID is the Windows principal. Client-supplied names are claims.
+- Authentication establishes who connected. Authorization determines which action that principal/session may perform.
+- Server owns connection/session binding across processes; environment variables are not session identity.
+- Installed LBE or the discovered authorized controller returns ALLOW, DENY or APPROVAL_REQUIRED.
+- Only the approved adapter executes the authorized action; no parallel bypass adapter silently substitutes.
+- Record actual execution, exit/timeout, independent effect observation and correlated receipt/history.
+- Reconcile unknown effects before resubmission; preserve operation identity.
+- Discover the current enforcement owner. A template, policy JSON or AGENTS.md cannot make a route enforced.
+- Requirements specify reliable delivery and authority outcomes, not a compulsory transport/library.

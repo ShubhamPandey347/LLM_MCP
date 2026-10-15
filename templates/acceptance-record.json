@@ -1,0 +1,14 @@
+{
+  "machine": null,
+  "os_identity_evidence": null,
+  "gateway_revision": null,
+  "dirty_state": null,
+  "python": null,
+  "client": null,
+  "authority_owner": null,
+  "state_paths": [],
+  "claims": [],
+  "restart_status": "UNVERIFIED",
+  "reboot_status": "UNVERIFIED",
+  "overall": "UNVERIFIED"
+}

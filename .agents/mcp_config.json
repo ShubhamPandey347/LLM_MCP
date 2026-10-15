@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "birdeye": {
+      "command": "C:/Local MCP/BirdEye/.venv/Scripts/python.exe",
+      "args": [
+        "C:/Local MCP/BirdEye/mcp_server.py",
+        "--stdio"
+      ],
+      "env": {
+        "BIRDEYE_STATE_ROOT": "C:/Local MCP/BirdEye/state",
+        "SKILLS_ROOT": "C:/Local MCP/Skills/curated",
+        "MEMORY_ROOT": "C:/Local MCP/Memory",
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

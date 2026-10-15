@@ -1,0 +1,20 @@
+{
+  "project_id": "llm-mcp",
+  "workspace": "C:/Local MCP",
+  "repository": "https://github.com/ShubhamPandey347/LLM_MCP",
+  "observed_at": "2026-10-15T13:30:00+04:00",
+  "head": null,
+  "branch": "main",
+  "dirty_state": false,
+  "desired_outcome": "Standalone BirdEye MCP environment replicated, operational, pushed to repo, and configured for all local agents",
+  "runtime_owner": "birdeye-mcp",
+  "authority_owner": "local",
+  "status": "CONFIGURED",
+  "evidence": [
+    "python venv created at C:/Local MCP/BirdEye/.venv",
+    "dependencies installed and verified via pip check",
+    "configurations rendered via scripts/render_config.py",
+    "roots configured: llm-mcp, gpt-knowledge, memory, skills"
+  ],
+  "next_action": "Verify indexing with eye.py, test MCP server, push to remote repository, configure agent MCP configs"
+}

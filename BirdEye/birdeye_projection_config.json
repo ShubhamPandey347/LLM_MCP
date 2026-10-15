@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "projection": {
+    "noWebhook": true,
+    "readOnly": true,
+    "noNewRuntimeAuthority": true
+  },
+  "projects": [
+    {
+      "projectId": "llm-mcp",
+      "projectName": "LLM MCP",
+      "subtitle": "BirdEye Local MCP Gateway",
+      "workspaceId": "llm-mcp",
+      "localWorkspaceRoot": "C:\\Local MCP",
+      "repository": "ShubhamPandey347/LLM_MCP",
+      "branch": "main",
+      "planDocument": null,
+      "statusDocument": null,
+      "validationProfile": "default",
+      "runtimeStatusSource": null
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "gateway": "C:/Local MCP/BirdEye",
+  "workspace": "C:/Local MCP/workspace",
+  "workspace_id": "llm-mcp",
+  "knowledge": "C:/Local MCP/Knowledge",
+  "skills": "C:/Local MCP/Skills/curated",
+  "memory": "C:/Local MCP/Memory",
+  "python": "C:/Local MCP/BirdEye/.venv/Scripts/python.exe",
+  "transport": "stdio"
+}

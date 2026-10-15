@@ -1,0 +1,15 @@
+{
+  "project_id": "my-project",
+  "workspace": "REPLACE_WITH_DISCOVERED_PATH",
+  "repository": "REPLACE_WITH_ACTUAL_REMOTE_OR_NULL",
+  "observed_at": null,
+  "head": null,
+  "branch": null,
+  "dirty_state": null,
+  "desired_outcome": "REPLACE_WITH_PROJECT_OUTCOME",
+  "runtime_owner": null,
+  "authority_owner": null,
+  "status": "UNVERIFIED",
+  "evidence": [],
+  "next_action": "Discover current target and execute bounded acceptance"
+}
