@@ -563,13 +563,46 @@ def _is_read_only_command(argv: tuple[str, ...]) -> bool:
         return len(argv) == 2 and argv[1] == "--version"
     return False
 
-def _journal_path(config_path: Path) -> Path:
+def _evidence_state_root(config_path: Path) -> Path:
+    """Resolve the single root for execution *evidence*, independent of process cwd.
+
+    Resolution order:
+      1. An explicit ``state_dir`` in the config file (relative values resolve
+         against the config file's own directory, not the caller's cwd).
+      2. ``BIRDEYE_STATE_ROOT`` when set, so the journal, the failure-circuit
+         state, the execution receipts and the process lease share one root.
+      3. The source-default ``<BirdEye>/state``.
+
+    This governs evidence only. Index and database locations (``state/vectors``,
+    ``eye_Databa`` and the legacy ``workspace.db``) keep their source-default
+    paths, matching GUIDE.md: BIRDEYE_STATE_ROOT is not assumed to relocate every
+    database.
+
+    Previously the journal used a cwd-relative ``state`` while receipts used the
+    source directory, so a client launched without a gateway cwd (for example
+    through .mcp.json) wrote history somewhere else and `workspace_command_history`
+    reported an empty history for executions that plainly happened.
+    """
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        state_dir = Path(config.get("state_dir", "state"))
+        raw = config.get("state_dir")
+        if isinstance(raw, str) and raw.strip():
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = config_path.resolve().parent / candidate
+            return candidate.resolve()
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        state_dir = Path("state")
-    return state_dir / "workspace_journal.jsonl"
+        pass
+
+    env_root = os.environ.get("BIRDEYE_STATE_ROOT")
+    if env_root and env_root.strip():
+        return Path(env_root).resolve()
+    return (Path(__file__).resolve().parent / "state").resolve()
+
+
+def _journal_path(config_path: Path) -> Path:
+    """Durable journal path inside the resolved evidence root."""
+    return _evidence_state_root(config_path) / "workspace_journal.jsonl"
 
 
 def _append_journal(
@@ -585,7 +618,15 @@ def _append_journal(
     classification: str,
     timed_out: bool = False,
     error: str | None = None,
-) -> None:
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Append one journal record and report whether it was actually persisted.
+
+    Persistence is best-effort so a full disk or locked state directory cannot
+    turn an already-performed execution into an unexplained failure. It is not
+    silent: the returned status is attached to the execution result so a caller
+    can distinguish "audited" from "executed but not journaled".
+    """
     path = _journal_path(config_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -593,6 +634,7 @@ def _append_journal(
             "timestamp": utc_now(),
             "workspace": workspace,
             "task_id": task_id,
+            "request_id": request_id,
             "argv": [_redact_secret(arg) for arg in argv],
             "exit_code": exit_code,
             "duration": round(duration, 3),
@@ -604,8 +646,13 @@ def _append_journal(
         }
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    except OSError as exc:
+        return {
+            "persisted": False,
+            "path": str(path),
+            "error": f"EVIDENCE_PERSISTENCE_FAILED: {type(exc).__name__}: {exc}",
+        }
+    return {"persisted": True, "path": str(path), "error": None}
 
 
 def _read_journal(config_path: Path, *, limit: int = 200) -> list[dict[str, Any]]:
@@ -658,16 +705,26 @@ def _load_circuits(config_path: Path) -> dict[str, dict[str, Any]]:
         return {}
 
 
-def _save_circuits(config_path: Path, circuits: dict[str, dict[str, Any]]) -> None:
+def _save_circuits(config_path: Path, circuits: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Persist failure-circuit state, reporting rather than hiding storage errors.
+
+    Execution does not fail merely because telemetry storage is unavailable, but
+    the caller is told the circuit state was not durable so a silently
+    non-tripping breaker cannot be mistaken for a healthy one.
+    """
     path = _circuit_path(config_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(path.suffix + ".tmp")
         temporary.write_text(json.dumps(circuits, sort_keys=True, indent=2), encoding="utf-8")
         temporary.replace(path)
-    except OSError:
-        # Execution must not become unsafe merely because telemetry storage is unavailable.
-        pass
+    except OSError as exc:
+        return {
+            "persisted": False,
+            "path": str(path),
+            "error": f"EVIDENCE_PERSISTENCE_FAILED: {type(exc).__name__}: {exc}",
+        }
+    return {"persisted": True, "path": str(path), "error": None}
 
 
 def _authority_gate(
@@ -698,15 +755,15 @@ def _authority_gate(
         "request_authority": "private-personal-mcp",
     }
 
-def _record_circuit_result(config_path: Path, gate: dict[str, Any], result: dict[str, Any]) -> None:
+def _record_circuit_result(config_path: Path, gate: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     failure_class = _failure_class(result)
     if not failure_class:
         # A successful execution is new evidence and clears only this intent.
         circuits = _load_circuits(config_path)
         if gate.get("circuit_key") in circuits:
             circuits.pop(gate["circuit_key"], None)
-            _save_circuits(config_path, circuits)
-        return
+            return _save_circuits(config_path, circuits)
+        return {"persisted": True, "path": str(_circuit_path(config_path)), "error": None}
     circuits = _load_circuits(config_path)
     key = gate.get("circuit_key")
     previous = circuits.get(key, {})
@@ -747,6 +804,7 @@ def _execute_argv(
     task_id: str | None = None,
     capture_mutation: bool = False,
     history: Any = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     from execution_evidence import build_execution_receipt, capture_diff_state, empty_diff_state
 
@@ -808,6 +866,8 @@ def _execute_argv(
         "workspace": workspace.name,
         "cwd": f"<workspace:{workspace.name}>",
         "argv": list(argv),
+        "request_id": request_id,
+        "task_id": task_id,
         "timeout_seconds": timeout_seconds,
         "started_at": started_at,
         "completed_at": utc_now(),
@@ -849,11 +909,12 @@ def _execute_argv(
             elapsed_seconds=elapsed,
             before=diff_before if diff_before.get("is_repository") else empty_diff_state(),
             after=diff_after if diff_after.get("is_repository") else empty_diff_state(),
+            request_id=request_id,
         )
     except (OSError, ValueError) as exc:
         result["execution_evidence"] = {"error": f"EVIDENCE_CAPTURE_FAILED: {exc}"}
 
-    _append_journal(
+    result["journal"] = _append_journal(
         config_path,
         workspace=workspace.name,
         task_id=task_id,
@@ -865,6 +926,7 @@ def _execute_argv(
         classification=classification,
         timed_out=timed_out,
         error=None if exit_code == 0 else f"exit code {exit_code}",
+        request_id=request_id,
     )
 
     return result
@@ -893,7 +955,7 @@ def run_command(request: RunRequest, config_path: Path) -> dict[str, Any]:
     )
 
     from execution_evidence import ExecutionHistory
-    history = ExecutionHistory(Path(__file__).resolve().parent / "state", workspace.name, request.argv)
+    history = ExecutionHistory(_evidence_state_root(config_path), workspace.name, request.argv)
     result = _execute_argv(
         workspace=workspace,
         argv=request.argv,
@@ -902,6 +964,7 @@ def run_command(request: RunRequest, config_path: Path) -> dict[str, Any]:
         task_id=request.task_id,
         capture_mutation=capture_mutation,
         history=history,
+        request_id=request.request_id,
     )
     result["authority"] = gate
     result["reconciliation"] = {
@@ -911,9 +974,17 @@ def run_command(request: RunRequest, config_path: Path) -> dict[str, Any]:
     }
     evidence = result.get("execution_evidence") or {}
     if "command_hash" in evidence:
-        result["execution_history"] = history.finalize(
-            Path(__file__).resolve().parent / "state", evidence
-        )
+        try:
+            result["execution_history"] = history.finalize(
+                _evidence_state_root(config_path), evidence
+            )
+        except (OSError, ValueError) as exc:
+            # The command has already run. Losing its result here would hide a
+            # possible side effect from the caller, so report the audit failure
+            # alongside the execution outcome instead of raising.
+            result["execution_history"] = {
+                "error": f"EVIDENCE_PERSISTENCE_FAILED: {type(exc).__name__}: {exc}"
+            }
     return result
 
 
@@ -946,7 +1017,7 @@ def run_sequence(request: RunSequenceRequest, config_path: Path) -> dict[str, An
 
         if history is None:
             from execution_evidence import ExecutionHistory
-            history = ExecutionHistory(Path(__file__).resolve().parent / "state", workspace.name, step.argv)
+            history = ExecutionHistory(_evidence_state_root(config_path), workspace.name, step.argv)
 
         step_result = _execute_argv(
             workspace=workspace,
@@ -956,6 +1027,7 @@ def run_sequence(request: RunSequenceRequest, config_path: Path) -> dict[str, An
             task_id=request.task_id,
             capture_mutation=capture_mutation,
             history=history,
+            request_id=request.request_id,
         )
         step_result["index"] = index
         step_result["step_id"] = step.step_id
@@ -990,9 +1062,16 @@ def run_sequence(request: RunSequenceRequest, config_path: Path) -> dict[str, An
             None,
         )
         if last_evidence:
-            response["execution_history"] = history.finalize(
-                Path(__file__).resolve().parent / "state", last_evidence
-            )
+            try:
+                response["execution_history"] = history.finalize(
+                    _evidence_state_root(config_path), last_evidence
+                )
+            except (OSError, ValueError) as exc:
+                # Steps have already run; keep their results and surface the
+                # audit failure rather than discarding the sequence outcome.
+                response["execution_history"] = {
+                    "error": f"EVIDENCE_PERSISTENCE_FAILED: {type(exc).__name__}: {exc}"
+                }
     return response
 
 

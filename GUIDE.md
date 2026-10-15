@@ -78,6 +78,8 @@ Review ALL other source configs for old machine paths, including governance.json
 
 Use the source-default gateway state location initially. BIRDEYE_STATE_ROOT is documented for watcher/MCP behavior, but do not assume it relocates every database or adapter; inspect actual paths returned by runtime status. All clients must resolve the same durable state/authority ownership.
 
+Execution *evidence* resolves to one root, and that resolution is cwd-independent. Order: an explicit `state_dir` in config.json (a relative value resolves against the config file, not the caller's working directory), then `BIRDEYE_STATE_ROOT`, then the source-default `<BirdEye>/state`. The `workspace_journal.jsonl`, `workspace_circuits.json`, `executions/<execution_id>/` receipts and the MCP process lease all sit under that one root, and every `workspace_run` result reports the resolved journal path in `journal.path` so the location can be confirmed rather than assumed. Index and database locations (`state/vectors`, `eye_Databa`, the legacy `workspace.db`) remain source-default and are not relocated by that setting. This matters for clients configured like `.mcp.json`, which launch the server by absolute script path and therefore do not control the process working directory: history and receipts must still be found together by the same client, and a run must never report an empty history for an execution that plainly happened.
+
 ## 5. Bootstrap shared content
 Copy templates/knowledge files into Knowledge and adapt them to the actual target. Copy the example skill into Skills/curated/example/SKILL.md. Keep current-position claims dated and evidence-linked. Copy no old project's completion claims.
 

@@ -102,7 +102,7 @@ def test_run_command_accepts_unregistered_absolute_workspace(tmp_path, monkeypat
     unregistered.mkdir()
     captured = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
         captured["cwd"] = str(cwd)
         captured["shell"] = shell
         return type("CP", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
@@ -139,7 +139,7 @@ def test_run_command_uses_shell_false(tmp_path, monkeypatch):
     workspace = resolve_workspace(config, "demo")
     captured: dict = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
         captured["cwd"] = str(cwd)
         captured["shell"] = shell
         return type("CP", (), {"returncode": 0, "stdout": "hi", "stderr": ""})()
@@ -151,7 +151,9 @@ def test_run_command_uses_shell_false(tmp_path, monkeypatch):
 def test_diagnostic_git_allowed():
     allowed, reason = _command_allowed(("git", "status", "--short"), Path("."))
     assert allowed is True
-    assert "git" in reason
+    # The transport contract is deliberately generic and no longer echoes the
+    # command name; it validates shape only (see test_git_push_is_transport_allowed_and_mutating).
+    assert "generic" in reason.lower()
 
 
 def test_git_push_is_transport_allowed_and_mutating():
@@ -197,14 +199,16 @@ def test_run_command_allows_absolute_argument_paths(tmp_path, monkeypatch):
     config = _config(tmp_path)
     captured = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
-        captured["args"] = args
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
+        captured.setdefault("calls", []).append(list(args))
         return type("CP", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("workspace_bridge.subprocess.run", fake_run)
     result = run_command(RunRequest("demo", ("StarDesk.exe", r"C:\\outside\\file.txt")), config)
     assert result["ok"] is True
-    assert captured["args"] == ["StarDesk.exe", r"C:\\outside\\file.txt"]
+    # Receipt capture adds its own git probes, so match the delivered argv rather
+    # than assuming this is the final subprocess.run call.
+    assert ["StarDesk.exe", r"C:\\outside\\file.txt"] in captured["calls"]
 
 
 def test_path_escape_detector():
@@ -254,7 +258,7 @@ def test_run_sequence_stops_on_failure(tmp_path, monkeypatch):
     config = _config(tmp_path)
     captured: list[tuple[str, ...]] = []
 
-    def fake_execute(workspace, argv, timeout_seconds, config_path, task_id=None, capture_mutation=False, history=None):
+    def fake_execute(workspace, argv, timeout_seconds, config_path, task_id=None, capture_mutation=False, history=None, request_id=None):
         captured.append(argv)
         result = _make_step_results(argv)
         result["index"] = len(captured)
@@ -284,7 +288,7 @@ def test_run_sequence_allows_stop_on_failure_false(tmp_path, monkeypatch):
     config = _config(tmp_path)
     captured: list[tuple[str, ...]] = []
 
-    def fake_execute(workspace, argv, timeout_seconds, config_path, task_id=None, capture_mutation=False, history=None):
+    def fake_execute(workspace, argv, timeout_seconds, config_path, task_id=None, capture_mutation=False, history=None, request_id=None):
         captured.append(argv)
         return _make_step_results(argv)
 
@@ -342,7 +346,7 @@ def test_secret_redaction():
 def test_stdout_stderr_captured(tmp_path, monkeypatch):
     config = _config(tmp_path)
 
-    def fake_run(args, *, cwd, shell, **kwargs):
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
         return type("CP", (), {
             "returncode": 2,
             "stdout": "out data",
@@ -400,7 +404,7 @@ def test_stdio_error_flag_requires_explicit_false():
 def test_stdout_stderr_captured(tmp_path, monkeypatch):
     config = _config(tmp_path)
 
-    def fake_run(args, *, cwd, shell, **kwargs):
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
         return type("CP", (), {
             "returncode": 2,
             "stdout": "out data",
@@ -433,16 +437,15 @@ def test_generic_execution_runs_without_secondary_capability_gate(tmp_path, monk
     config = _config(tmp_path)
     captured = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
-        captured["args"] = args
-        captured["cwd"] = str(cwd)
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
+        captured.setdefault("calls", []).append(list(args))
         captured["shell"] = shell
         return type("CP", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("workspace_bridge.subprocess.run", fake_run)
     result = run_command(RunRequest("demo", ("StarDesk.exe", "--open")), config)
     assert result["ok"] is True
-    assert captured["args"] == ["StarDesk.exe", "--open"]
+    assert ["StarDesk.exe", "--open"] in captured["calls"]
     assert captured["shell"] is False
     assert result["authority"]["authority"] == "birdeye-mcp-user"
     assert result["authority"]["request_authority"] == "private-personal-mcp"
@@ -452,27 +455,27 @@ def test_absolute_executable_path_runs_without_secondary_gate(tmp_path, monkeypa
     config = _config(tmp_path)
     captured = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
-        captured["args"] = args
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
+        captured.setdefault("calls", []).append(list(args))
         return type("CP", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("workspace_bridge.subprocess.run", fake_run)
     executable = r"C:\\Program Files\\StarDesk\\StarDesk.exe"
     result = run_command(RunRequest("demo", (executable,)), config)
     assert result["ok"] is True
-    assert captured["args"][0] == executable
+    assert any(call and call[0] == executable for call in captured["calls"])
 
 
 def test_git_push_reaches_execution_without_secondary_capability_gate(tmp_path, monkeypatch):
     config = _config(tmp_path)
     captured = {}
 
-    def fake_run(args, *, cwd, shell, **kwargs):
-        captured["args"] = args
+    def fake_run(args, *, cwd=None, shell=None, **kwargs):
+        captured.setdefault("calls", []).append(list(args))
         return type("CP", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr("workspace_bridge.subprocess.run", fake_run)
     result = run_command(RunRequest("demo", ("git", "push", "origin", "main")), config)
     assert result["ok"] is True
-    assert captured["args"] == ["git", "push", "origin", "main"]
+    assert ["git", "push", "origin", "main"] in captured["calls"]
     assert result["authority"]["mutation"] is True

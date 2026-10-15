@@ -137,8 +137,14 @@ def build_execution_receipt(
     elapsed_seconds: float,
     before: dict[str, Any],
     after: dict[str, Any],
+    request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the full before/after execution evidence receipt."""
+    """Build the full before/after execution evidence receipt.
+
+    request_id preserves caller-supplied operation identity in the receipt. It is
+    omitted from the canonical receipt when absent so that receipts produced
+    without an explicit request id keep their previously published hashes.
+    """
     before_paths = set(before.get("changed_paths") or [])
     after_paths = set(after.get("changed_paths") or [])
     introduced = sorted(after_paths - before_paths)
@@ -169,6 +175,8 @@ def build_execution_receipt(
         "command_introduced_paths": introduced,
         "command_removed_paths": removed,
     }
+    if request_id is not None:
+        canonical_receipt["request_id"] = request_id
 
     return {
         **canonical_receipt,
