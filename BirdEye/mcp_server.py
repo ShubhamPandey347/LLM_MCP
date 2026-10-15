@@ -1267,7 +1267,12 @@ def _mcp_result_is_error(result: dict[str, Any]) -> bool:
     return result.get("ok") is False
 
 
-def invoke(tool: str, params: dict[str, Any]) -> dict[str, Any]:
+def invoke(tool: str, params: dict[str, Any], config_path: Path | None = None) -> dict[str, Any]:
+    # The supplied --config must govern *execution*, not just history lookup.
+    # Without this, a verifier that checked the journal under one config could
+    # silently exercise a different default config for the command itself.
+    if config_path is None:
+        config_path = CONFIG_PATH
     if tool not in _TOOL_REGISTRY:
         return {
             "ok": False,
@@ -1391,7 +1396,7 @@ def invoke(tool: str, params: dict[str, Any]) -> dict[str, Any]:
                 "workspace": str(BIRDEYE_DIR),
                 "argv": argv,
                 "intent": "desktop-" + action,
-            }), CONFIG_PATH)
+            }), config_path)
             if not receipt.get("ok"):
                 return receipt
             output = json.loads(receipt.get("stdout", "{}"))
@@ -1423,13 +1428,13 @@ def invoke(tool: str, params: dict[str, Any]) -> dict[str, Any]:
             return result
         if tool == "workspace_run":
             request = RunRequest.from_mapping(params)
-            return run_command(request, CONFIG_PATH)
+            return run_command(request, config_path)
         if tool == "workspace_run_sequence":
             request = RunSequenceRequest.from_mapping(params)
-            return run_sequence(request, CONFIG_PATH)
+            return run_sequence(request, config_path)
         if tool == "workspace_command_history":
             return command_history(
-                CONFIG_PATH,
+                config_path,
                 limit=int(params.get("limit", 50)),
                 workspace=params.get("workspace"),
             )

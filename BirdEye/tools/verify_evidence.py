@@ -98,7 +98,11 @@ def main() -> int:
         "import json,sys;"
         f"sys.path.insert(0,{str(BIRDEYE_DIR)!r});"
         "import mcp_server;"
-        f"print(json.dumps(mcp_server.invoke('workspace_run', json.loads({json.dumps(json.dumps(payload))})),"
+        # --config must govern execution, not just history lookup. Without it
+        # the subprocess runs MCP with its default config while the history
+        # check below uses the supplied one, so the two could disagree.
+        f"print(json.dumps(mcp_server.invoke('workspace_run', json.loads({json.dumps(json.dumps(payload))}), "
+        f"config_path=__import__('pathlib').Path({str(config_path)!r})),"
         "ensure_ascii=False))"
     )
     try:
@@ -123,23 +127,34 @@ def main() -> int:
     record("effect is real and independently read", "PASS" if actual == token else "FAIL",
            f"marker={marker} bytes_match={actual == token}")
 
-    # 3. Receipt integrity: hash on disk must equal the hash in the returned evidence.
+    # 3. Receipt integrity: recompute the canonical hash from the receipt's own
+    #    content and compare it to the stored execution_evidence_sha256.
+    #    Comparing stored hash fields against each other would accept an altered
+    #    receipt, because both sides came from the same untrusted source.
     evidence = result.get("execution_evidence") or {}
     history = result.get("execution_history") or {}
     receipt_path = history.get("receipt_path")
     if receipt_path and Path(receipt_path).is_file():
         on_disk = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
-        same = on_disk.get("execution_evidence_sha256") == evidence.get("execution_evidence_sha256")
+        from execution_evidence import recompute_receipt_hash
+        recomputed = recompute_receipt_hash(on_disk)
+        stored = on_disk.get("execution_evidence_sha256")
+        same = recomputed == stored
         record("receipt persisted and hash matches", "PASS" if same else "FAIL",
-               f"{receipt_path}\n             sha256={evidence.get('execution_evidence_sha256')} "
-               f"overall_evidence={evidence.get('overall_evidence')}")
+               f"{receipt_path}\n             stored_sha256={stored} "
+               f"recomputed_sha256={recomputed} "
+               f"overall_evidence={on_disk.get('overall_evidence')}")
     else:
         record("receipt persisted and hash matches", "FAIL",
                f"no receipt file: {history.get('error') or receipt_path or 'execution_history missing'}")
 
+    # Read request_id from the persisted receipt file, not from the tool's
+    # returned evidence, so the check is independent of the caller-controlled
+    # in-memory dict.
+    rid_on_disk = (on_disk.get("request_id") if receipt_path and Path(receipt_path).is_file() else None)
     record("request identity preserved in receipt",
-           "PASS" if evidence.get("request_id") == request_id else "FAIL",
-           f"receipt.request_id={evidence.get('request_id')} expected={request_id}")
+           "PASS" if rid_on_disk == request_id else "FAIL",
+           f"receipt.request_id={rid_on_disk} expected={request_id}")
 
     # 4. Journal correlation, read from disk rather than through the tool.
     journal = result.get("journal") or {}

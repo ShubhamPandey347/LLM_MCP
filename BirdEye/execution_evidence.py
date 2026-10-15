@@ -124,6 +124,92 @@ def empty_diff_state() -> dict[str, Any]:
     }
 
 
+def _canonical_receipt_dict(
+    *,
+    argv: Sequence[str],
+    exit_code: int | None,
+    timed_out: bool,
+    stdout: str,
+    stderr: str,
+    started_at: str,
+    completed_at: str,
+    elapsed_seconds: float,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    stdout_sha256: str | None = None,
+    stderr_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Build the canonical receipt dict whose sha256 is the evidence identity.
+
+    Extracted so the hash can be recomputed *independently* from a persisted
+    receipt file: a verifier that only compares stored hash fields against each
+    other accepts an altered receipt, because both sides came from the same
+    untrusted source. Recomputing from the receipt's own content closes that.
+
+    The persisted receipt stores stdout_sha256/stderr_sha256 (digests), not the
+    raw streams, so callers may pass the stored digests directly instead of the
+    original text.
+    """
+    before_paths = set(before.get("changed_paths") or [])
+    after_paths = set(after.get("changed_paths") or [])
+    introduced = sorted(after_paths - before_paths)
+    removed = sorted(before_paths - after_paths)
+
+    command_hash = _canonical_sha256({"argv": list(argv)})
+    stdout_sha = stdout_sha256 if stdout_sha256 is not None else _sha256_text(stdout)
+    stderr_sha = stderr_sha256 if stderr_sha256 is not None else _sha256_text(stderr)
+    changed_by_command = (
+        before.get("diff_state_sha256") != after.get("diff_state_sha256")
+        or bool(introduced)
+        or bool(removed)
+    )
+
+    return {
+        "command_hash": command_hash,
+        "argv": list(argv),
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "stdout_sha256": stdout_sha,
+        "stderr_sha256": stderr_sha,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "elapsed_seconds": elapsed_seconds,
+        "before": {k: before.get(k) for k in ("head", "branch", "diff_state_sha256")},
+        "after": {k: after.get(k) for k in ("head", "branch", "diff_state_sha256")},
+        "workspace_changed_by_command": changed_by_command,
+        "command_introduced_paths": introduced,
+        "command_removed_paths": removed,
+    }
+
+
+def recompute_receipt_hash(receipt: dict[str, Any]) -> str:
+    """Independently recompute execution_evidence_sha256 from a persisted receipt.
+
+    A verifier that only compares stored hash fields against each other accepts
+    an altered receipt, because both sides came from the same untrusted source.
+    This rebuilds the canonical dict from the receipt's own content and hashes
+    it, so tampering with any field (including request_id) breaks the check.
+    """
+    canonical = _canonical_receipt_dict(
+        argv=receipt.get("argv") or [],
+        exit_code=receipt.get("exit_code"),
+        timed_out=bool(receipt.get("timed_out")),
+        stdout="",
+        stderr="",
+        started_at=receipt.get("started_at", ""),
+        completed_at=receipt.get("completed_at", ""),
+        elapsed_seconds=float(receipt.get("elapsed_seconds", 0) or 0),
+        before=receipt.get("before") or {},
+        after=receipt.get("after") or {},
+        stdout_sha256=receipt.get("stdout_sha256"),
+        stderr_sha256=receipt.get("stderr_sha256"),
+    )
+    rid = receipt.get("request_id")
+    if rid is not None:
+        canonical["request_id"] = rid
+    return _canonical_sha256(canonical)
+
+
 def build_execution_receipt(
     *,
     root: Path,
@@ -147,34 +233,19 @@ def build_execution_receipt(
     """
     before_paths = set(before.get("changed_paths") or [])
     after_paths = set(after.get("changed_paths") or [])
-    introduced = sorted(after_paths - before_paths)
-    removed = sorted(before_paths - after_paths)
 
-    command_hash = _canonical_sha256({"argv": list(argv)})
-    stdout_sha = _sha256_text(stdout)
-    stderr_sha = _sha256_text(stderr)
-    changed_by_command = (
-        before.get("diff_state_sha256") != after.get("diff_state_sha256")
-        or bool(introduced)
-        or bool(removed)
+    canonical_receipt = _canonical_receipt_dict(
+        argv=argv,
+        exit_code=exit_code,
+        timed_out=timed_out,
+        stdout=stdout,
+        stderr=stderr,
+        started_at=started_at,
+        completed_at=completed_at,
+        elapsed_seconds=elapsed_seconds,
+        before=before,
+        after=after,
     )
-
-    canonical_receipt = {
-        "command_hash": command_hash,
-        "argv": list(argv),
-        "exit_code": exit_code,
-        "timed_out": timed_out,
-        "stdout_sha256": stdout_sha,
-        "stderr_sha256": stderr_sha,
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "elapsed_seconds": elapsed_seconds,
-        "before": {k: before.get(k) for k in ("head", "branch", "diff_state_sha256")},
-        "after": {k: after.get(k) for k in ("head", "branch", "diff_state_sha256")},
-        "workspace_changed_by_command": changed_by_command,
-        "command_introduced_paths": introduced,
-        "command_removed_paths": removed,
-    }
     if request_id is not None:
         canonical_receipt["request_id"] = request_id
 
@@ -183,7 +254,8 @@ def build_execution_receipt(
         "preexisting_changed_paths": sorted(before_paths),
         "changed_paths_after": sorted(after_paths),
         "overall_evidence": (
-            "REVIEW" if (exit_code == 0 and changed_by_command)
+            "REVIEW"
+            if (exit_code == 0 and canonical_receipt["workspace_changed_by_command"])
             else ("PROVEN" if exit_code == 0 else "FAILED")
         ),
         "execution_evidence_sha256": _canonical_sha256(canonical_receipt),
